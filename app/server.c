@@ -163,12 +163,13 @@ int main(int argc, char** argv) {
                         fclose(file);
                         return 1;
                     }
-                    //printf("data: %s\n", data);
                     data[file_size] = '\0';
+                    //printf("data: %s\n", data); 
                     fclose(file);
                     char* reply = calloc(BUFFER_SIZE+file_size, sizeof(char));
                     sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %i\r\n\r\n%s",
-                        i, data);
+                        (int) file_size, data);
+                    printf("reply: %s\n", reply);
                     send(client, reply, strlen(reply), 0);
                 }
 
