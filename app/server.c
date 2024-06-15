@@ -6,6 +6,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #define BUFFER_SIZE 1024
 
@@ -31,7 +32,21 @@ int get_index_of_substring(char* source, char* substring) {
     return -1;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    char* abs_path = "/";
+    if (argc == 3) {
+        if (strcmp(argv[1], "--directory") == 0) {
+            abs_path = argv[2];
+            DIR* check = opendir(abs_path);
+            if (check) {
+                closedir(check);
+            }
+            else {
+                printf("Directory does not exists\n");
+                return 1;
+            }
+        }
+    }
 	// Disable output buffering
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
@@ -77,7 +92,7 @@ int main() {
         int client = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
         if (read(client, buffer, BUFFER_SIZE) < 0) perror("read");
             printf("Client connected\n");
-        //printf("debug: Buffer:\n%s\n", buffer);
+        printf("debug: Buffer:\n%s\n", buffer);
 
         char* bufferCopy = calloc(BUFFER_SIZE, sizeof(char));
         strcpy(bufferCopy, buffer);
@@ -118,8 +133,45 @@ int main() {
                 char* reply = calloc(BUFFER_SIZE, sizeof(char));
                 sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s",
                         i, echo);
-                printf("reply: %s\n", reply);
+                //printf("reply: %s\n", reply);
                 send(client, reply, strlen(reply), 0);
+            }
+            else if (strncmp(bufferCopy, "/files/", 7) == 0) {
+                bufferCopy += 7;
+                int i = 0;
+                for (; bufferCopy[i]; i++) {
+                    if (bufferCopy[i] == ' ') break;
+                }
+                char* tmpPath = calloc(i+1, sizeof(char));
+                strncpy(tmpPath, bufferCopy, i);
+                char* filepath = calloc(strlen(abs_path) + i + 1, sizeof(char));
+                sprintf(filepath, "%s%s", abs_path, tmpPath);
+                FILE* file = fopen(filepath, "r");
+                if (file == NULL) {
+                    char* reply = "HTTP/1.1 404 Not Found\r\n\r\n";
+                    send(client, reply, strlen(reply), 0);
+                }
+                else {
+                    fseek(file, 0, SEEK_END);
+                    long file_size = ftell(file);
+                    fseek(file, 0, SEEK_SET);
+                    char* data = calloc(file_size, sizeof(char));
+                    size_t read_size = fread(data, 1, file_size, file);
+                    if (read_size != file_size) {
+                        perror("Error reading file");
+                        free(data);
+                        fclose(file);
+                        return 1;
+                    }
+                    //printf("data: %s\n", data);
+                    data[file_size] = '\0';
+                    fclose(file);
+                    char* reply = calloc(BUFFER_SIZE+file_size, sizeof(char));
+                    sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %i\r\n\r\n%s",
+                        i, data);
+                    send(client, reply, strlen(reply), 0);
+                }
+
             }
             else {
                 char* reply = "HTTP/1.1 404 Not Found\r\n\r\n";
