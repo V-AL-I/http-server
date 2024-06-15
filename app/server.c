@@ -18,12 +18,16 @@ int get_index_of_substring(char* source, char* substring) {
     strcpy(sourceCopy, source);
     int count = 0;
     while (sourceCopy[0] != '\0'){
-        if (strncmp(sourceCopy, substring, subStrLen) == 0) return count;
+        if (strncmp(sourceCopy, substring, subStrLen) == 0) {
+            free(sourceCopy);
+            return count;
+        }
         else {
             count++;
             sourceCopy++;
         }
     }
+    free(sourceCopy);
     return -1;
 }
 
@@ -74,11 +78,32 @@ int main() {
     
         printf("Client connected\n");
 
+    char* bufferCopy = calloc(BUFFER_SIZE, sizeof(char));
+    strcpy(bufferCopy, buffer);
     int command = get_index_of_substring(buffer, "GET");
     if (command >= 0) {
-        if (buffer[4] == '/' && buffer[5] == ' ') {
+        bufferCopy += 4;
+        if (strncmp(bufferCopy, "/ ", 2) == 0) {
             char* reply = "HTTP/1.1 200 OK\r\n\r\n";
             send(client, reply, strlen(reply), 0);
+        }
+        else if (strncmp(bufferCopy, "/echo/", 6) == 0) {
+            bufferCopy += 6;
+            //printf("firstBuffer Copy: %s\n", bufferCopy);
+            int i = 0;
+            for (; bufferCopy[i]; i++) {
+                if (bufferCopy[i] == ' ') break;
+            }
+            char* echo = calloc(i + 1, sizeof(char));
+            strncpy(echo, bufferCopy, i);
+            char* reply = calloc(BUFFER_SIZE, sizeof(char));
+            sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s",
+                    i, echo);
+            //printf("%s\n", reply);
+            send(client, reply, strlen(reply), 0);
+            //free(reply);
+            //free(echo);
+
         }
         else {
             char* reply = "HTTP/1.1 404 Not Found\r\n\r\n";
@@ -88,7 +113,7 @@ int main() {
 
     //printf("buffer = %s\n", buffer);
 
-	
+	//free(bufferCopy);
 	close(server_fd);
 
 	return 0;
