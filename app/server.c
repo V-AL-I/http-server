@@ -19,7 +19,7 @@ int get_index_of_substring(char* source, char* substring) {
     int count = 0;
     while (sourceCopy[0] != '\0'){
         if (strncmp(sourceCopy, substring, subStrLen) == 0) {
-            free(sourceCopy);
+            //free(sourceCopy);
             return count;
         }
         else {
@@ -36,7 +36,8 @@ int main() {
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
 
-	int server_fd, client_addr_len;
+	int server_fd;
+    socklen_t client_addr_len;
 	struct sockaddr_in client_addr;
     char buffer[BUFFER_SIZE] = {0};
 	
@@ -75,8 +76,8 @@ int main() {
 	
 	int client = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
     if (read(client, buffer, BUFFER_SIZE) < 0) perror("read");
-    
         printf("Client connected\n");
+    //printf("debug: Buffer:\n%s\n", buffer);
 
     char* bufferCopy = calloc(BUFFER_SIZE, sizeof(char));
     strcpy(bufferCopy, buffer);
@@ -89,7 +90,6 @@ int main() {
         }
         else if (strncmp(bufferCopy, "/echo/", 6) == 0) {
             bufferCopy += 6;
-            //printf("firstBuffer Copy: %s\n", bufferCopy);
             int i = 0;
             for (; bufferCopy[i]; i++) {
                 if (bufferCopy[i] == ' ') break;
@@ -99,11 +99,28 @@ int main() {
             char* reply = calloc(BUFFER_SIZE, sizeof(char));
             sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s",
                     i, echo);
-            //printf("%s\n", reply);
             send(client, reply, strlen(reply), 0);
-            //free(reply);
-            //free(echo);
 
+        }
+        else if (strncmp(bufferCopy, "/user-agent", 11) == 0) {
+            bufferCopy += 11;
+            int shift = get_index_of_substring(bufferCopy, "User-Agent: ");
+            if (shift < 0) {
+                printf("User Agent failed: %s\n", strerror(errno));
+                return 1;
+            }
+            bufferCopy += shift + 12;
+            int i = 0;
+            for (; bufferCopy[i]; i++) {
+                if (bufferCopy[i] == '\r') break;
+            }
+            char* echo = calloc(i + 1, sizeof(char));
+            strncpy(echo, bufferCopy, i);
+            char* reply = calloc(BUFFER_SIZE, sizeof(char));
+            sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s",
+                    i, echo);
+            printf("reply: %s\n", reply);
+            send(client, reply, strlen(reply), 0);
         }
         else {
             char* reply = "HTTP/1.1 404 Not Found\r\n\r\n";
