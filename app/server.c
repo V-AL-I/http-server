@@ -7,9 +7,11 @@
 #include <errno.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <zlib.h>
 
 #define BUFFER_SIZE 1024
 #define HTTP "HTTP/1.1"
+#define CHUNK 16384
 
 int get_index_of_substring(char* source, char* substring) {
     // return the index of the first substring if found,
@@ -31,6 +33,58 @@ int get_index_of_substring(char* source, char* substring) {
     }
     //free(sourceCopy);
     return -1;
+}
+
+char* gzip_compress(const char* data, int data_size, int* compressed_size) {
+    z_stream zs;
+    memset(&zs, 0, sizeof(zs));
+
+    // Initialize zlib stream for compression
+    if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+        return NULL;
+    }
+
+    zs.next_in = (Bytef*)data;
+    zs.avail_in = data_size;
+
+    int chunk = 16384; // Chunk size for output buffer
+    char* out_buffer = (char*)malloc(chunk);
+    if (!out_buffer) {
+        deflateEnd(&zs);
+        return NULL;
+    }
+
+    int total_compressed = 0;
+    int ret;
+    do {
+        zs.next_out = (Bytef*)out_buffer + total_compressed;
+        zs.avail_out = chunk - total_compressed;
+
+        // Compress data
+        ret = deflate(&zs, Z_FINISH);
+        if (ret == Z_STREAM_ERROR) {
+            deflateEnd(&zs);
+            free(out_buffer);
+            return NULL;
+        }
+
+        total_compressed = chunk - zs.avail_out;
+
+        // Expand output buffer if needed
+        if (zs.avail_out == 0) {
+            chunk *= 2;
+            out_buffer = (char*)realloc(out_buffer, chunk);
+            if (!out_buffer) {
+                deflateEnd(&zs);
+                return NULL;
+            }
+        }
+    } while (ret != Z_STREAM_END);
+
+    *compressed_size = total_compressed;
+    deflateEnd(&zs);
+
+    return out_buffer;
 }
 
 int main(int argc, char** argv) {
@@ -118,16 +172,39 @@ int main(int argc, char** argv) {
                 if (compression >= 0) {
                     bufferCopy += compression + 17;
                     int gzip = get_index_of_substring(bufferCopy, "gzip");
-                    if (gzip >= 0) bufferCopy += gzip;
-                    if (strncmp(bufferCopy, "gzip", 4) == 0) {
+                    if (gzip >= 0) {
+                        bufferCopy += gzip;
+                        if (strncmp(bufferCopy, "gzip", 4) == 0) {
+                            const char* body = echo;
+                            int body_size = strlen(body);
+
+                            int compressed_size;
+                            char* compressed_data = gzip_compress(body, body_size, &compressed_size);
+                            if (compressed_size) {
+                                char* reply = calloc(BUFFER_SIZE, sizeof(char));
+                                sprintf(reply, "%s 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n", HTTP, compressed_size);
+
+                                printf("debug: reply:\n%s\n", reply);
+                                send(client, reply, strlen(reply), 0);
+                                send(client, compressed_data, compressed_size, 0);
+                            }
+                            else {
+                                printf("debug: Compression failed");
+                            }
+                        }
+                    }
+                    else {
                         char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                        sprintf(reply, "%s 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s", HTTP, i, echo);
+                        sprintf(reply, "%s 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s", HTTP, i, echo);
                         send(client, reply, strlen(reply), 0);
                     }
                 }
-                char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                sprintf(reply, "%s 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s", HTTP, i, echo);
-                send(client, reply, strlen(reply), 0);
+                else {
+                    char* reply = calloc(BUFFER_SIZE, sizeof(char));
+                    sprintf(reply, "%s 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s", HTTP, i, echo);
+                    printf("debug: reply:\n%s\n", reply);
+                    send(client, reply, strlen(reply), 0);
+                }
 
             }
             else if (strncmp(bufferCopy, "/user-agent", 11) == 0) {
