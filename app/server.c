@@ -11,7 +11,6 @@
 
 #define BUFFER_SIZE 1024
 #define HTTP "HTTP/1.1"
-#define CHUNK 16384
 
 int get_index_of_substring(char* source, char* substring) {
     // return the index of the first substring if found,
@@ -144,21 +143,27 @@ int main(int argc, char** argv) {
 	
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
-    while (1) {	
+    while (1) {
         int client = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+        char* headers;
+        char* body;
+
         if (read(client, buffer, BUFFER_SIZE) < 0) perror("read");
             printf("Client connected\n");
         printf("debug: Buffer:\n%s\n", buffer);
 
+
+        // Copy the buffer to allow maniupulation without losing original request
         char* bufferCopy = calloc(BUFFER_SIZE, sizeof(char));
         strcpy(bufferCopy, buffer);
-        int command = get_index_of_substring(buffer, "GET");
-        if (command >= 0) {
+
+        int method = get_index_of_substring(buffer, "GET");
+        if (method >= 0) {
             bufferCopy += 4;
             if (strncmp(bufferCopy, "/ ", 2) == 0) {
-                char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                sprintf(reply, "%s 200 OK\r\n\r\n", HTTP);
-                send(client, reply, strlen(reply), 0);
+                headers = calloc(BUFFER_SIZE, sizeof(char));
+                sprintf(headers, "%s 200 OK\r\n\r\n", HTTP);
+                send(client, headers, strlen(headers), 0);
             }
             else if (strncmp(bufferCopy, "/echo/", 6) == 0) {
                 bufferCopy += 6;
@@ -166,8 +171,8 @@ int main(int argc, char** argv) {
                 for (; bufferCopy[i]; i++) {
                     if (bufferCopy[i] == ' ') break;
                 }
-                char* echo = calloc(i + 1, sizeof(char));
-                strncpy(echo, bufferCopy, i);
+                body = calloc(i + 1, sizeof(char));
+                strncpy(body, bufferCopy, i);
                 int compression = get_index_of_substring(bufferCopy, "Accept-Encoding: ");
                 if (compression >= 0) {
                     bufferCopy += compression + 17;
@@ -175,35 +180,44 @@ int main(int argc, char** argv) {
                     if (gzip >= 0) {
                         bufferCopy += gzip;
                         if (strncmp(bufferCopy, "gzip", 4) == 0) {
-                            const char* body = echo;
-                            int body_size = strlen(body);
-
+                            const char* const_body = body;
+                            int body_size = strlen(const_body);
                             int compressed_size;
-                            char* compressed_data = gzip_compress(body, body_size, &compressed_size);
+                            char* compressed_data = gzip_compress(const_body, body_size, &compressed_size);
                             if (compressed_size) {
-                                char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                                sprintf(reply, "%s 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n", HTTP, compressed_size);
+                                headers = calloc(BUFFER_SIZE, sizeof(char));
+                                sprintf(headers,
+                                        "%s 200 OK\r\n"
+                                        "Content-Encoding: gzip\r\n"
+                                        "Content-Type: text/plain\r\n"
+                                        "Content-Length: %d\r\n\r\n",
+                                        HTTP, compressed_size);
 
-                                printf("debug: reply:\n%s\n", reply);
-                                send(client, reply, strlen(reply), 0);
+                                send(client, headers, strlen(headers), 0);
                                 send(client, compressed_data, compressed_size, 0);
-                            }
-                            else {
-                                printf("debug: Compression failed");
                             }
                         }
                     }
                     else {
-                        char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                        sprintf(reply, "%s 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s", HTTP, i, echo);
-                        send(client, reply, strlen(reply), 0);
+                        headers = calloc(BUFFER_SIZE, sizeof(char));
+                        sprintf(headers,
+                                "%s 200 OK\r\n"
+                                "Content-Type: text/plain\r\n"
+                                "Content-Length: %i\r\n\r\n",
+                                HTTP, i);
+                        send(client, headers, strlen(headers), 0);
+                        send(client, body, strlen(body), 0);
                     }
                 }
                 else {
-                    char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                    sprintf(reply, "%s 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s", HTTP, i, echo);
-                    printf("debug: reply:\n%s\n", reply);
-                    send(client, reply, strlen(reply), 0);
+                    headers = calloc(BUFFER_SIZE, sizeof(char));
+                    sprintf(headers,
+                            "%s 200 OK\r\n"
+                            "Content-Type: text/plain\r\n"
+                            "Content-Length: %i\r\n\r\n",
+                            HTTP, i);
+                    send(client, headers, strlen(headers), 0);
+                    send(client, body, strlen(body), 0);
                 }
 
             }
@@ -219,13 +233,16 @@ int main(int argc, char** argv) {
                 for (; bufferCopy[i]; i++) {
                     if (bufferCopy[i] == '\r') break;
                 }
-                char* echo = calloc(i + 1, sizeof(char));
-                strncpy(echo, bufferCopy, i);
-                char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                sprintf(reply, "%s 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s",
-                        HTTP, i, echo);
-                //printf("reply: %s\n", reply);
-                send(client, reply, strlen(reply), 0);
+                body = calloc(i + 1, sizeof(char));
+                strncpy(body, bufferCopy, i);
+                headers = calloc(BUFFER_SIZE, sizeof(char));
+                sprintf(headers,
+                        "%s 200 OK\r\n"
+                        "Content-Type: text/plain\r\n"
+                        "Content-Length: %i\r\n\r\n",
+                        HTTP, i);
+                send(client, headers, strlen(headers), 0);
+                send(client, body, strlen(body), 0);
             }
             else if (strncmp(bufferCopy, "/files/", 7) == 0) {
                 bufferCopy += 7;
@@ -239,9 +256,9 @@ int main(int argc, char** argv) {
                 sprintf(filepath, "%s%s", abs_path, tmpPath);
                 FILE* file = fopen(filepath, "r");
                 if (file == NULL) {
-                    char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                    sprintf(reply, "%s 404 Not Found\r\n\r\n", HTTP);
-                    send(client, reply, strlen(reply), 0);
+                    headers = calloc(BUFFER_SIZE, sizeof(char));
+                    sprintf(headers, "%s 404 Not Found\r\n\r\n", HTTP);
+                    send(client, headers, strlen(headers), 0);
                 }
                 else {
                     fseek(file, 0, SEEK_END);
@@ -257,22 +274,25 @@ int main(int argc, char** argv) {
                     data[file_size] = '\0';
                     //printf("data: %s\n", data); 
                     fclose(file);
-                    char* reply = calloc(BUFFER_SIZE+file_size, sizeof(char));
-                    sprintf(reply, "%s 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %i\r\n\r\n%s",
-                        HTTP, (int) file_size, data);
-                    printf("reply: %s\n", reply);
-                    send(client, reply, strlen(reply), 0);
+                    headers = calloc(BUFFER_SIZE+file_size, sizeof(char));
+                    sprintf(headers,
+                            "%s 200 OK\r\n"
+                            "Content-Type: application/octet-stream\r\n"
+                            "Content-Length: %i\r\n\r\n",
+                        HTTP, (int) file_size);
+                    send(client, headers, strlen(headers), 0);
+                    send(client, data, strlen(data), 0);
                 }
 
             }
             else {
-                char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                sprintf(reply, "%s 404 Not Found\r\n\r\n", HTTP);
-                send(client, reply, strlen(reply), 0);
+                headers = calloc(BUFFER_SIZE, sizeof(char));
+                sprintf(headers, "%s 404 Not Found\r\n\r\n", HTTP);
+                send(client, headers, strlen(headers), 0);
             }
         }
-        command = get_index_of_substring(buffer, "POST");
-        if (command >= 0) {
+        method = get_index_of_substring(buffer, "POST");
+        if (method >= 0) {
             bufferCopy += 5;
             if (strncmp(bufferCopy, "/files/", 7) == 0) {
                 bufferCopy+=7;
@@ -313,22 +333,17 @@ int main(int argc, char** argv) {
                 strncpy(data, bufferCopy, length+1);
                 fputs(data, file);
                 fclose(file);
-                char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                sprintf(reply, "%s 201 Created\r\n\r\n", HTTP);
-                send(client, reply, strlen(reply), 0);
+                headers = calloc(BUFFER_SIZE, sizeof(char));
+                sprintf(headers, "%s 201 Created\r\n\r\n", HTTP);
+                send(client, headers, strlen(headers), 0);
             }
             else {
-                char* reply = calloc(BUFFER_SIZE, sizeof(char));
-                sprintf(reply, "%s 404 Not Found\r\n\r\n", HTTP);
-                send(client, reply, strlen(reply), 0);
+                headers = calloc(BUFFER_SIZE, sizeof(char));
+                sprintf(headers, "%s 404 Not Found\r\n\r\n", HTTP);
+                send(client, headers, strlen(headers), 0);
             }
         }
     }
-
-
-    //printf("buffer = %s\n", buffer);
-
-	//free(bufferCopy);
 	close(server_fd);
 
 	return 0;
