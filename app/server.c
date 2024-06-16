@@ -214,7 +214,7 @@ int main(int argc, char** argv) {
                 int length = atoi(sLength);
                 printf("lenght = %i\n", length);
 
-                bufferCopy += 4;
+                bufferCopy += 6;
 
                 char* data = calloc(length, sizeof(char));
                 strncpy(data, bufferCopy, length+1);
