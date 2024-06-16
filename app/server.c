@@ -48,6 +48,7 @@ int main(int argc, char** argv) {
             }
         }
     }
+
 	// Disable output buffering
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
@@ -116,6 +117,8 @@ int main(int argc, char** argv) {
                 int compression = get_index_of_substring(bufferCopy, "Accept-Encoding: ");
                 if (compression >= 0) {
                     bufferCopy += compression + 17;
+                    int gzip = get_index_of_substring(bufferCopy, "gzip");
+                    if (gzip >= 0) bufferCopy += gzip;
                     if (strncmp(bufferCopy, "gzip", 4) == 0) {
                         char* reply = calloc(BUFFER_SIZE, sizeof(char));
                         sprintf(reply, "%s 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: %i\r\n\r\n%s", HTTP, i, echo);
