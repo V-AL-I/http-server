@@ -28,7 +28,7 @@ int get_index_of_substring(char* source, char* substring) {
             sourceCopy++;
         }
     }
-    free(sourceCopy);
+    //free(sourceCopy);
     return -1;
 }
 
@@ -159,7 +159,6 @@ int main(int argc, char** argv) {
                     size_t read_size = fread(data, 1, file_size, file);
                     if (read_size != file_size) {
                         perror("Error reading file");
-                        free(data);
                         fclose(file);
                         return 1;
                     }
@@ -173,6 +172,56 @@ int main(int argc, char** argv) {
                     send(client, reply, strlen(reply), 0);
                 }
 
+            }
+            else {
+                char* reply = "HTTP/1.1 404 Not Found\r\n\r\n";
+                send(client, reply, strlen(reply), 0);
+            }
+        }
+        command = get_index_of_substring(buffer, "POST");
+        if (command >= 0) {
+            bufferCopy += 5;
+            if (strncmp(bufferCopy, "/files/", 7) == 0) {
+                bufferCopy+=7;
+                int i = 0;
+                for (; bufferCopy[i]; i++) if (bufferCopy[i] == ' ') break;
+
+                char* tmpPath = calloc(i+1, sizeof(char));
+                strncpy(tmpPath, bufferCopy, i);
+                char* filename = calloc(strlen(abs_path) + i + 1, sizeof(char));
+                sprintf(filename, "%s%s", abs_path, tmpPath);
+                FILE* file = fopen(filename, "w");
+                if (!file) {
+                    printf("Error while oppening file\n");
+                    fclose(file);
+                    return 1;
+                }
+
+                int shift = get_index_of_substring(bufferCopy, "Content-Length: ");
+                if (shift < 0) {
+                    printf("error with the content Length of the POST request\n");
+                    fclose(file);
+                    return 1;
+                }
+
+                bufferCopy += shift + 16; // place pointer a the begining of the actual value
+
+
+                i = 0;
+                for (; buffer[i]; i++) if (buffer[i] == '\r') break;
+                char* sLength = calloc(i+1, sizeof(char));
+                strncpy(sLength, bufferCopy, i);
+                int length = atoi(sLength);
+                printf("lenght = %i\n", length);
+
+                bufferCopy += 4;
+
+                char* data = calloc(length, sizeof(char));
+                strncpy(data, bufferCopy, length+1);
+                fputs(data, file);
+                fclose(file);
+                char* reply = "HTTP/1.1 201 Created\r\n\r\n";
+                send(client, reply, strlen(reply), 0);
             }
             else {
                 char* reply = "HTTP/1.1 404 Not Found\r\n\r\n";
