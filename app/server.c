@@ -226,6 +226,7 @@ int main(int argc, char** argv) {
             else {
                 char* reply = "HTTP/1.1 404 Not Found\r\n\r\n";
                 send(client, reply, strlen(reply), 0);
+
             }
         }
     }
